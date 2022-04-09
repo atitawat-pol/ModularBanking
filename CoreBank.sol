@@ -3,6 +3,7 @@
 pragma solidity ^0.6.0;
 
 import "./InterestRateInterface.sol";
+import "./BankBalanceInterface.sol";
 
 
 /**
@@ -121,17 +122,12 @@ inheritance, etc.) */
 contract CoreBank { // CamelCase
     using SafeMath for uint256;
     // Declare state variables outside function, persist through life of contract
-
-    // dictionary that maps addresses to balances
-    mapping (address => uint256) private balances;
-    
-    // Users in system
-    address[] accounts;
     
 
     //  Type of rateModule is InterestRateModule
     // InterestRateModule = type: address
     InterestRateModule public rateModule;
+    BankBalanceModule public balanceModule;
 
     // "private" means that other contracts can't directly query balances
     // but data is still viewable to other parties on blockchain
@@ -143,12 +139,13 @@ contract CoreBank { // CamelCase
     event DepositMade(address accountAddress, uint amount);
 
     // Constructor, can receive one or many variables here; only one allowed
-    constructor(InterestRateModule _rateModule) public {
+    constructor(InterestRateModule _rateModule, BankBalanceModule _balanceModule) public {
         // msg provides details about the message that's sent to the contract
         // msg.sender is contract caller (address of contract creator)
         owner = msg.sender;
 
         rateModule = _rateModule;
+        balanceModule = _balanceModule;
     }
 
     function upgradeInterestModule(InterestRateModule _rateModule) public {
@@ -159,18 +156,13 @@ contract CoreBank { // CamelCase
     /// @notice Deposit ether into bank
     /// @return The balance of the user after the deposit is made
     function deposit() public payable returns (uint256) {
-        // Record account in array for looping
-        if (0 == balances[msg.sender]) {
-            accounts.push(msg.sender);
-        }
-        
-        balances[msg.sender] = balances[msg.sender].add(msg.value);
-        // no "this." or "self." required with state variable
-        // all values set to data type's initial value by default
+        // Change from user to Programming
+        // function deposit(address user, uint256 amount) external payable returns (uint256);
+        uint256 newBalance = balanceModule.deposit.value(msg.value)(msg.sender, msg.value);
 
         emit DepositMade(msg.sender, msg.value); // fire event
 
-        return balances[msg.sender];
+        return newBalance;
     }
 
     /// @notice Withdraw ether from bank
@@ -178,13 +170,12 @@ contract CoreBank { // CamelCase
     /// @param withdrawAmount amount you want to withdraw
     /// @return remainingBal The balance remaining for the user
     function withdraw(uint withdrawAmount) public returns (uint256 remainingBal) {
-        require(balances[msg.sender] >= withdrawAmount);
-        balances[msg.sender] = balances[msg.sender].sub(withdrawAmount);
+        uint256 newBalance = balanceModule.withdraw(msg.sender, withdrawAmount);
 
         // Revert on failed
         msg.sender.transfer(withdrawAmount);
         
-        return balances[msg.sender];
+        return newBalance;
     }
 
     /// @notice Get balance
@@ -192,7 +183,7 @@ contract CoreBank { // CamelCase
     // 'constant' prevents function from editing state variables;
     // allows function to run locally/off blockchain
     function balance() public view returns (uint256) {
-        return balances[msg.sender];
+        return balanceModule.balance(msg.sender);
     }
 
     // Fallback function - Called if other functions don't match call or
@@ -200,21 +191,21 @@ contract CoreBank { // CamelCase
     // Typically, called when invalid data is sent
     // Added so ether sent to this contract is reverted if the contract fails
     // otherwise, the sender's money is transferred to contract
-    fallback () external {
-        revert(); // throw reverts state to before call
+    fallback () external payable {
+        // revert(); // throw reverts state to before call
     }
     
     
     function increaseYear() public {
-        for(uint256 i = 0; i < accounts.length; i++) {
-            address account = accounts[i];
-            uint256 interest = rateModule.calculateInterest(account, balances[account]);
-            balances[account] = balances[account].add(interest);
+        for(uint256 i = 0; i < balanceModule.accountCount(); i++) {
+            address account = balanceModule.accounts(i);
+            uint256 interest = rateModule.calculateInterest(account, balanceModule.balance(account)); // change calculateInterest() to return newBalance instead of interest
+            balanceModule.forceUpdateBalance(account, balanceModule.balance(account).add(interest));
         }
     }
     
     function systemBalance() public view returns(uint256) {
-        return address(this).balance;
+        return address(balanceModule).balance;
     }
 }
 // ** END EXAMPLE **
